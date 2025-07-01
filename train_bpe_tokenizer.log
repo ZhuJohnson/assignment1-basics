@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.5, pytest-8.3.5, pluggy-1.5.0
+rootdir: /home/johnson/dev/assignment1-basics
+configfile: pyproject.toml
+plugins: jaxtyping-0.3.1
+collected 3 items
+
+tests/test_train_bpe.py::test_train_bpe_speed 0.010364294052124023 0.3144669532775879 0.3248312473297119
+PASSED
+tests/test_train_bpe.py::test_train_bpe 0.00974726676940918 0.29940247535705566 0.30914974212646484
+PASSED
+tests/test_train_bpe.py::test_train_bpe_special_tokens 0.49323272705078125 1.3205537796020508 1.813786506652832
+PASSED
+
+============================== 3 passed in 2.48s ===============================
