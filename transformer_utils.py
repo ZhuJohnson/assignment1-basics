@@ -166,4 +166,16 @@ class RotaryPositionalEmbedding(torch.nn.Module):
             self._max_seq_len = max_len
         return x * self.cos[token_positions] + self.half_rotate(x) * self.sin[token_positions]
         
-        
+def safe_softmax(x, softmax_dim):
+    """apply softmax to the i-th dimension of the input
+    tensor x. The output tensor should have the same shape as the input tensor, but its i-th dimension will
+    now have a normalized probability distribution.
+
+    Args:
+        x (torch.Tensor): input tensor
+        softmax_dim (int): the dimension which the softmax will apply on
+    """
+    max_val = torch.max(x, dim=softmax_dim, keepdim=True).values
+    logits = torch.exp(x - max_val)
+    logits_sum = logits.sum(dim=softmax_dim, keepdim=True)
+    return logits / logits_sum

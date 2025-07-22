@@ -10,7 +10,9 @@ import torch
 from torch import Tensor
 
 from bpe_tokenizer import train_bpe_tokenizer
-from transformer_utils import LinearLayer, EmbeddingLayer
+from transformer_utils import LinearLayer, EmbeddingLayer, RMSNormLayer, SwiGLULayer, RotaryPositionalEmbedding
+from transformer_utils import safe_softmax
+import transformer_utils
 
 
 def run_linear(
@@ -32,7 +34,7 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
     linear_layer = LinearLayer(d_in, d_out)
-    linear_layer.load_state_dict({'W':weights.T})
+    linear_layer.load_state_dict({'W':weights})
     return linear_layer(in_features)
     #raise NotImplementedError
 
@@ -90,7 +92,12 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    swiglu_l = SwiGLULayer(d_model, d_ff)
+    swiglu_l.w1.data = w1_weight
+    swiglu_l.w2.data = w2_weight
+    swiglu_l.w3.data = w3_weight
+    return swiglu_l(in_features)
+    #raise NotImplementedError
 
 
 def run_scaled_dot_product_attention(
@@ -185,6 +192,8 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
+    #swiglu_l = SwiGLULayer(d_model, d_ff)
+
     raise NotImplementedError
 
 
@@ -207,7 +216,9 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    rope_layer = RotaryPositionalEmbedding(theta, d_k, max_seq_len)
+    return rope_layer(in_query_or_key, token_positions)
+    #raise NotImplementedError
 
 
 def run_transformer_block(
@@ -385,7 +396,10 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    rms_layer = RMSNormLayer(d_model, eps)
+    rms_layer.load_state_dict({'W': weights})
+    return rms_layer(in_features)
+    #raise NotImplementedError
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -399,7 +413,8 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    return transformer_utils.silu(in_features)
+    #raise NotImplementedError
 
 
 def run_get_batch(
@@ -438,7 +453,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    return safe_softmax(in_features, dim)
+    #raise NotImplementedError
 
 
 def run_cross_entropy(inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]) -> Float[Tensor, ""]:
