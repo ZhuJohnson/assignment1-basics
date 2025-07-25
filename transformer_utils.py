@@ -1,5 +1,7 @@
 import torch
 from torch import nn
+import math
+import einops
 
 class LinearLayer(torch.nn.Module):
     def __init__(self, in_features, out_features, device=None, dtype=None):
@@ -164,6 +166,8 @@ class RotaryPositionalEmbedding(torch.nn.Module):
         if max_len >= self._max_seq_len:
             self.update_cache(max_len + 1)
             self._max_seq_len = max_len
+        if token_positions is None:
+            token_positions = torch.tensor(range(x.shape[-2]))
         return x * self.cos[token_positions] + self.half_rotate(x) * self.sin[token_positions]
         
 def safe_softmax(x, softmax_dim):
@@ -179,3 +183,64 @@ def safe_softmax(x, softmax_dim):
     logits = torch.exp(x - max_val)
     logits_sum = logits.sum(dim=softmax_dim, keepdim=True)
     return logits / logits_sum
+
+def scaled_dot_product_attention(q, k, v, mask=None):
+    """calculate the scaled dot product consuming q/k/v/mask
+
+    Args:
+        q (torch.tensor): (batch_size, ..., seq_len_q, d_k)
+        k (torch.Tensor): (batch_size, ..., seq_len_k, d_k)
+        v (torch.Tensor): (batch_size, ..., seq_len_k, d_v)
+        mask (torch.Tensor, optional): the boolean torch tensor, value=True means corresponding query attend to keys
+
+    Returns:
+        _type_: _description_
+    """
+    d_k = q.shape[-1]
+    x = torch.einsum("... a d, ... b d -> ... a b", q, k) / d_k ** 0.5
+    if mask is not None:
+        x = x.masked_fill(~mask, float('-inf'))
+    y = safe_softmax(x, -1)
+    output = torch.einsum("... a b, ... b c -> ... a c", y, v)
+    return output
+
+class MultiHead_self_Attention(torch.nn.Module):
+    def __init__(self, d_model, num_heads, rope: nn.Module = None, device = None, dtype = None):
+        """ causal multi-head self-attention implementation
+
+        Args:
+            d_model (int): Dimensionality of the Transformer block inputs.
+            num_heads (int): Number of heads to use in multi-head self-attention.
+            rope (nn.Module): the optional rope transformation
+            device
+            dtype
+        """
+        super().__init__()
+        self._d_model = d_model
+        self._num_heads = num_heads
+        self._rope = rope
+        self._d_k, self._d_v = d_model // num_heads, d_model // num_heads
+        self._qkv_layer = LinearLayer(d_model, 3*d_model, device=device, dtype=dtype)
+        #self._q_layer = LinearLayer(d_model, d_model, device=device, dtype=dtype)
+        #self._k_layer = LinearLayer(d_model, d_model, device=device, dtype=dtype)
+        #self._v_layer = LinearLayer(d_model, d_model, device=device, dtype=dtype)
+        self._wo_layer = LinearLayer(d_model, d_model, device=device, dtype=dtype)
+    
+    def forward(self, x, token_positions=None):
+        seq_len = x.shape[-2]
+        causal_mask = torch.tril(torch.ones(seq_len, seq_len, device = x.device, dtype = torch.bool))
+        QKV = self._qkv_layer(x)
+        Q, K, V = QKV.chunk(3, dim=-1)
+        #Q = self._q_layer(x)
+        #K = self._k_layer(x)
+        #V = self._v_layer(x)
+        Q = einops.rearrange(Q, "... seq_len (num_heads d_head) -> ... num_heads seq_len d_head", num_heads = self._num_heads, d_head = self._d_k)
+        K = einops.rearrange(K, "... seq_len (num_heads d_head) -> ... num_heads seq_len d_head", num_heads = self._num_heads, d_head = self._d_k)
+        V = einops.rearrange(V, "... seq_len (num_heads d_head) -> ... num_heads seq_len d_head", num_heads = self._num_heads, d_head = self._d_v)
+        if self._rope:
+            Q = self._rope(Q, token_positions)
+            K = self._rope(K, token_positions)
+
+        attn = scaled_dot_product_attention(Q, K, V, mask = causal_mask)
+        attn = einops.rearrange(attn, "... num_heads seq_len dv -> ... seq_len (num_heads dv)", num_heads = self._num_heads, dv=self._d_v)
+        return self._wo_layer(attn)
